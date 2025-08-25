@@ -1,5 +1,7 @@
-import { type Peer, type InsertPeer, type Message, type InsertMessage, type NetworkStats, type InsertNetworkStats } from "@shared/schema";
+import { type Peer, type InsertPeer, type Message, type InsertMessage, type NetworkStats, type InsertNetworkStats, peers, messages, networkStats } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { db } from "./db";
+import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
   // Peer management
@@ -22,96 +24,87 @@ export interface IStorage {
   updateNetworkStats(stats: InsertNetworkStats): Promise<NetworkStats>;
 }
 
-export class MemStorage implements IStorage {
-  private peers: Map<string, Peer>;
-  private messages: Map<string, Message>;
-  private networkStats: NetworkStats | undefined;
-
-  constructor() {
-    this.peers = new Map();
-    this.messages = new Map();
-    this.networkStats = undefined;
-  }
-
+export class DatabaseStorage implements IStorage {
   async getPeer(id: string): Promise<Peer | undefined> {
-    return this.peers.get(id);
+    const [peer] = await db.select().from(peers).where(eq(peers.id, id));
+    return peer || undefined;
   }
 
   async getAllPeers(): Promise<Peer[]> {
-    return Array.from(this.peers.values());
+    return await db.select().from(peers);
   }
 
   async getActivePeers(): Promise<Peer[]> {
-    return Array.from(this.peers.values()).filter(peer => peer.status === 'connected');
+    return await db.select().from(peers).where(eq(peers.status, 'connected'));
   }
 
   async createPeer(insertPeer: InsertPeer): Promise<Peer> {
-    const peer: Peer = {
-      ...insertPeer,
-      lastSeen: new Date(),
-      metadata: null
-    };
-    this.peers.set(peer.id, peer);
+    const [peer] = await db
+      .insert(peers)
+      .values(insertPeer)
+      .returning();
     return peer;
   }
 
   async updatePeerStatus(id: string, status: string): Promise<void> {
-    const peer = this.peers.get(id);
-    if (peer) {
-      peer.status = status;
-      peer.lastSeen = new Date();
-      this.peers.set(id, peer);
-    }
+    await db
+      .update(peers)
+      .set({ status, lastSeen: new Date() })
+      .where(eq(peers.id, id));
   }
 
   async removePeer(id: string): Promise<void> {
-    this.peers.delete(id);
+    await db.delete(peers).where(eq(peers.id, id));
   }
 
   async getMessage(id: string): Promise<Message | undefined> {
-    return this.messages.get(id);
+    const [message] = await db.select().from(messages).where(eq(messages.id, id));
+    return message || undefined;
   }
 
   async getMessages(): Promise<Message[]> {
-    return Array.from(this.messages.values()).sort((a, b) => 
-      new Date(b.timestamp!).getTime() - new Date(a.timestamp!).getTime()
-    );
+    return await db
+      .select()
+      .from(messages)
+      .orderBy(desc(messages.timestamp));
   }
 
   async getMessagesByPeer(peerId: string): Promise<Message[]> {
-    return Array.from(this.messages.values())
-      .filter(msg => msg.fromPeerId === peerId || msg.toPeerId === peerId)
-      .sort((a, b) => new Date(b.timestamp!).getTime() - new Date(a.timestamp!).getTime());
+    return await db
+      .select()
+      .from(messages)
+      .where(eq(messages.fromPeerId, peerId))
+      .orderBy(desc(messages.timestamp));
   }
 
   async createMessage(insertMessage: InsertMessage): Promise<Message> {
-    const id = randomUUID();
-    const message: Message = {
-      ...insertMessage,
-      id,
-      timestamp: new Date()
-    };
-    this.messages.set(id, message);
+    const [message] = await db
+      .insert(messages)
+      .values(insertMessage)
+      .returning();
     return message;
   }
 
   async clearMessages(): Promise<void> {
-    this.messages.clear();
+    await db.delete(messages);
   }
 
   async getNetworkStats(): Promise<NetworkStats | undefined> {
-    return this.networkStats;
+    const [stats] = await db
+      .select()
+      .from(networkStats)
+      .orderBy(desc(networkStats.lastUpdated))
+      .limit(1);
+    return stats || undefined;
   }
 
   async updateNetworkStats(stats: InsertNetworkStats): Promise<NetworkStats> {
-    const networkStats: NetworkStats = {
-      ...stats,
-      id: randomUUID(),
-      lastUpdated: new Date()
-    };
-    this.networkStats = networkStats;
-    return networkStats;
+    const [networkStat] = await db
+      .insert(networkStats)
+      .values(stats)
+      .returning();
+    return networkStat;
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
