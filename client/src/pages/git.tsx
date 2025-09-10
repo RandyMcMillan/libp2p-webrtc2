@@ -54,7 +54,7 @@ export default function Git() {
     queryKey: ['/api/git/status'],
   });
 
-  const { data: peers } = useQuery({
+  const { data: peers } = useQuery<Array<{ id: string; status: string; protocol: string }>>({
     queryKey: ['/api/peers'],
   });
 
@@ -82,11 +82,13 @@ export default function Git() {
 
   const sendPatchMutation = useMutation({
     mutationFn: async (data: { commitHash: string; targetPeerId: string; message: string; fromPeerId: string }) => {
-      return apiRequest('/api/git/send-patch', {
+      const response = await fetch('/api/git/send-patch', {
         method: 'POST',
         body: JSON.stringify(data),
         headers: { 'Content-Type': 'application/json' }
       });
+      if (!response.ok) throw new Error('Failed to send patch');
+      return response.json();
     },
     onSuccess: () => {
       toast({
