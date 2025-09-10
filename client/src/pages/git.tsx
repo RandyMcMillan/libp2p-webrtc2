@@ -1,11 +1,16 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { GitBranch, GitCommit, FileText, Folder, Clock, User } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { GitBranch, GitCommit, FileText, Folder, Clock, User, Send } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 interface GitStatus {
   branch: string;
@@ -34,9 +39,23 @@ interface Commit {
 export default function Git() {
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [patchDialog, setPatchDialog] = useState<{ open: boolean; commitHash: string; commitMessage: string }>({
+    open: false,
+    commitHash: '',
+    commitMessage: ''
+  });
+  const [selectedPeer, setSelectedPeer] = useState<string>('');
+  const [patchMessage, setPatchMessage] = useState<string>('');
+
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: gitStatus } = useQuery<GitStatus>({
     queryKey: ['/api/git/status'],
+  });
+
+  const { data: peers } = useQuery({
+    queryKey: ['/api/peers'],
   });
 
   const { data: commits } = useQuery<Commit[]>({
@@ -60,6 +79,51 @@ export default function Git() {
     queryKey: ['/api/git/diff', selectedCommit],
     enabled: !!selectedCommit,
   });
+
+  const sendPatchMutation = useMutation({
+    mutationFn: async (data: { commitHash: string; targetPeerId: string; message: string; fromPeerId: string }) => {
+      return apiRequest('/api/git/send-patch', {
+        method: 'POST',
+        body: JSON.stringify(data),
+        headers: { 'Content-Type': 'application/json' }
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Patch sent successfully",
+        description: "The git patch has been sent to the selected peer."
+      });
+      setPatchDialog({ open: false, commitHash: '', commitMessage: '' });
+      setSelectedPeer('');
+      setPatchMessage('');
+      queryClient.invalidateQueries({ queryKey: ['/api/messages'] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to send patch",
+        description: error.message || "An error occurred while sending the patch.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const handleSendPatch = () => {
+    if (!selectedPeer || !patchDialog.commitHash) {
+      toast({
+        title: "Missing information",
+        description: "Please select a peer and commit.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    sendPatchMutation.mutate({
+      commitHash: patchDialog.commitHash,
+      targetPeerId: selectedPeer,
+      message: patchMessage || `Sharing commit: ${patchDialog.commitMessage}`,
+      fromPeerId: 'current-peer' // This should be the current peer's ID
+    });
+  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -213,23 +277,101 @@ export default function Git() {
                 <div className="space-y-4">
                   {commits?.map((commit) => (
                     <div key={commit.hash} className="border-l-2 border-muted pl-4 pb-4">
-                      <Button
-                        variant="ghost"
-                        className="h-auto p-0 justify-start"
-                        onClick={() => setSelectedCommit(commit.hash)}
-                        data-testid={`commit-${commit.hash.substring(0, 8)}`}
-                      >
-                        <div className="text-left">
-                          <div className="font-medium">{commit.message}</div>
-                          <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
-                            <span className="font-mono">{commit.hash.substring(0, 8)}</span>
-                            <User className="h-3 w-3" />
-                            <span>{commit.author_name}</span>
-                            <Clock className="h-3 w-3" />
-                            <span>{formatDate(commit.date)}</span>
+                      <div className="flex items-start justify-between">
+                        <Button
+                          variant="ghost"
+                          className="h-auto p-0 justify-start flex-1"
+                          onClick={() => setSelectedCommit(commit.hash)}
+                          data-testid={`commit-${commit.hash.substring(0, 8)}`}
+                        >
+                          <div className="text-left">
+                            <div className="font-medium">{commit.message}</div>
+                            <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                              <span className="font-mono">{commit.hash.substring(0, 8)}</span>
+                              <User className="h-3 w-3" />
+                              <span>{commit.author_name}</span>
+                              <Clock className="h-3 w-3" />
+                              <span>{formatDate(commit.date)}</span>
+                            </div>
                           </div>
-                        </div>
-                      </Button>
+                        </Button>
+                        
+                        <Dialog 
+                          open={patchDialog.open && patchDialog.commitHash === commit.hash}
+                          onOpenChange={(open) => 
+                            setPatchDialog({ 
+                              open, 
+                              commitHash: open ? commit.hash : '', 
+                              commitMessage: open ? commit.message : '' 
+                            })
+                          }
+                        >
+                          <DialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="ml-2"
+                              data-testid={`send-patch-${commit.hash.substring(0, 8)}`}
+                            >
+                              <Send className="h-3 w-3" />
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Send Patch to Peer</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4">
+                              <div>
+                                <label className="text-sm font-medium">Commit:</label>
+                                <p className="text-sm text-muted-foreground">{commit.message}</p>
+                                <p className="text-xs text-muted-foreground">{commit.hash.substring(0, 8)}</p>
+                              </div>
+                              
+                              <div>
+                                <label className="text-sm font-medium">Select Peer:</label>
+                                <Select value={selectedPeer} onValueChange={setSelectedPeer}>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Choose a connected peer" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {peers?.filter((peer: any) => peer.status === 'connected')?.map((peer: any) => (
+                                      <SelectItem key={peer.id} value={peer.id}>
+                                        {peer.id} ({peer.protocol})
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              
+                              <div>
+                                <label className="text-sm font-medium">Message (optional):</label>
+                                <Textarea
+                                  value={patchMessage}
+                                  onChange={(e) => setPatchMessage(e.target.value)}
+                                  placeholder="Add a message to accompany the patch..."
+                                  className="mt-1"
+                                />
+                              </div>
+                              
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  onClick={() => setPatchDialog({ open: false, commitHash: '', commitMessage: '' })}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  onClick={handleSendPatch}
+                                  disabled={sendPatchMutation.isPending || !selectedPeer}
+                                  data-testid="confirm-send-patch"
+                                >
+                                  {sendPatchMutation.isPending ? 'Sending...' : 'Send Patch'}
+                                </Button>
+                              </div>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      </div>
                     </div>
                   ))}
                 </div>
