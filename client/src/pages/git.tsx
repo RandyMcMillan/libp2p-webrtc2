@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { GitBranch, GitCommit, FileText, Folder, Clock, User, Send } from "lucide-react";
+import { GitBranch, GitCommit, FileText, Folder, Clock, User, Send, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -58,7 +58,7 @@ export default function Git() {
     queryKey: ['/api/peers'],
   });
 
-  const { data: commits } = useQuery<Commit[]>({
+  const { data: commits, isLoading: commitsLoading } = useQuery<Commit[]>({
     queryKey: ['/api/git/commits'],
   });
 
@@ -276,8 +276,16 @@ export default function Git() {
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-64">
-                <div className="space-y-4">
-                  {commits?.map((commit) => (
+                {commitsLoading ? (
+                  <div className="flex items-center justify-center h-32">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                      <span className="text-sm text-muted-foreground">Loading commits...</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {commits?.map((commit) => (
                     <div key={commit.hash} className="border-l-2 border-muted pl-4 pb-4">
                       <div className="flex items-start justify-between">
                         <Button
@@ -376,7 +384,8 @@ export default function Git() {
                       </div>
                     </div>
                   ))}
-                </div>
+                  </div>
+                )}
               </ScrollArea>
             </CardContent>
           </Card>
