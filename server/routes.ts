@@ -121,6 +121,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
               peers: peers.filter(p => p.id !== ws.peerId)
             }));
             break;
+
+          case 'git-patch':
+            // Handle receiving a git patch from another peer
+            const patchMessage = await storage.createMessage({
+              fromPeerId: message.fromPeerId,
+              toPeerId: ws.peerId!,
+              content: `Received git patch: ${message.commit?.message}`,
+              messageType: 'git-patch'
+            });
+
+            // Forward to the target peer if they're connected
+            ws.send(JSON.stringify({
+              type: 'git-patch-received',
+              patch: message.patch,
+              commit: message.commit,
+              fromPeerId: message.fromPeerId,
+              customMessage: message.customMessage,
+              message: patchMessage
+            }));
+            break;
         }
       } catch (error) {
         console.error('WebSocket message error:', error);
@@ -320,6 +340,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ error: 'Failed to fetch branches' });
+    }
+  });
+
+  // Generate patch for a commit
+  app.get('/api/git/patch/:hash', async (req, res) => {
+    try {
+      const commitHash = req.params.hash;
+      const patch = await git.raw(['format-patch', '-1', '--stdout', commitHash]);
+      
+      // Get commit info for metadata
+      const log = await git.log({ from: commitHash, maxCount: 1 });
+      const commit = log.latest;
+      
+      res.json({
+        patch,
+        commit: {
+          hash: commit?.hash,
+          message: commit?.message,
+          author: commit?.author_name,
+          date: commit?.date
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to generate patch' });
+    }
+  });
+
+  // Send patch to peer via WebSocket
+  app.post('/api/git/send-patch', async (req, res) => {
+    try {
+      const { commitHash, targetPeerId, message } = req.body;
+      
+      // Generate patch
+      const patch = await git.raw(['format-patch', '-1', '--stdout', commitHash]);
+      const log = await git.log({ from: commitHash, maxCount: 1 });
+      const commit = log.latest;
+      
+      // Find target peer WebSocket connection
+      const targetPeer = connectedClients.get(targetPeerId);
+      if (!targetPeer || targetPeer.readyState !== WebSocket.OPEN) {
+        return res.status(400).json({ error: 'Target peer not connected' });
+      }
+      
+      // Send patch via WebSocket
+      targetPeer.send(JSON.stringify({
+        type: 'git-patch',
+        patch,
+        commit: {
+          hash: commit?.hash,
+          message: commit?.message,
+          author: commit?.author_name,
+          date: commit?.date
+        },
+        fromPeerId: req.body.fromPeerId || 'unknown',
+        customMessage: message
+      }));
+      
+      // Store patch message in database
+      await storage.createMessage({
+        fromPeerId: req.body.fromPeerId || 'system',
+        toPeerId: targetPeerId,
+        content: `Sent git patch: ${commit?.message}`,
+        messageType: 'git-patch'
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to send patch' });
     }
   });
 
