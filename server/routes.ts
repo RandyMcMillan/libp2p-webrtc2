@@ -4,6 +4,8 @@ import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { insertPeerSchema, insertMessageSchema, insertNetworkStatsSchema } from "@shared/schema";
 import { z } from "zod";
+import simpleGit from "simple-git";
+import { join } from "path";
 
 interface WebSocketWithPeerId extends WebSocket {
   peerId?: string;
@@ -208,6 +210,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: 'Failed to fetch network stats' });
+    }
+  });
+
+  // Git API endpoints
+  const git = simpleGit(process.cwd());
+
+  // Get repository status and basic info
+  app.get('/api/git/status', async (req, res) => {
+    try {
+      const status = await git.status();
+      const branches = await git.branch();
+      const log = await git.log({ maxCount: 1 });
+      
+      res.json({
+        branch: branches.current,
+        ahead: status.ahead,
+        behind: status.behind,
+        modified: status.modified,
+        created: status.created,
+        deleted: status.deleted,
+        staged: status.staged,
+        lastCommit: log.latest
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get git status' });
+    }
+  });
+
+  // Get commit history
+  app.get('/api/git/commits', async (req, res) => {
+    try {
+      const maxCount = parseInt(req.query.limit as string) || 20;
+      const log = await git.log({ maxCount });
+      res.json(log.all);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch commits' });
+    }
+  });
+
+  // Get file tree for current working directory
+  app.get('/api/git/tree', async (req, res) => {
+    try {
+      const fs = await import('fs/promises');
+      const pathModule = await import('path');
+      const path = req.query.path as string || '';
+      
+      const fullPath = pathModule.join(process.cwd(), path);
+      const items = await fs.readdir(fullPath, { withFileTypes: true });
+      const files = items
+        .filter(item => !item.name.startsWith('.') && item.name !== 'node_modules')
+        .map(item => ({
+          name: item.name,
+          type: item.isDirectory() ? 'directory' : 'file'
+        }));
+      
+      res.json(files);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch file tree' });
+    }
+  });
+
+  // Get file content
+  app.get('/api/git/file', async (req, res) => {
+    try {
+      const filePath = req.query.path as string;
+      
+      if (!filePath) {
+        return res.status(400).json({ error: 'File path is required' });
+      }
+
+      try {
+        // Try git show first
+        const content = await git.show([`HEAD:${filePath}`]);
+        res.json({ content, path: filePath });
+      } catch (gitError) {
+        // Fallback: read from filesystem
+        const fs = await import('fs/promises');
+        const pathModule = await import('path');
+        
+        const fullPath = pathModule.join(process.cwd(), filePath);
+        const content = await fs.readFile(fullPath, 'utf-8');
+        res.json({ content, path: filePath });
+      }
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch file content' });
+    }
+  });
+
+  // Get diff for a commit
+  app.get('/api/git/diff/:hash', async (req, res) => {
+    try {
+      const commitHash = req.params.hash;
+      const diff = await git.show([commitHash]);
+      res.json({ diff });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch diff' });
+    }
+  });
+
+  // Get branches
+  app.get('/api/git/branches', async (req, res) => {
+    try {
+      const branches = await git.branch(['-a']);
+      res.json({
+        current: branches.current,
+        all: branches.all,
+        local: Object.keys(branches.branches).filter(name => !name.startsWith('remotes/'))
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch branches' });
     }
   });
 

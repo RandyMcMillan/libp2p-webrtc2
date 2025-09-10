@@ -7,6 +7,7 @@ import { BottomNav } from "@/components/bottom-nav";
 import Home from "@/pages/home";
 import Discovery from "@/pages/discovery";
 import Messages from "@/pages/messages";
+import Git from "@/pages/git";
 import Settings from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
@@ -16,6 +17,7 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/discovery" component={Discovery} />
       <Route path="/messages" component={Messages} />
+      <Route path="/git" component={Git} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>

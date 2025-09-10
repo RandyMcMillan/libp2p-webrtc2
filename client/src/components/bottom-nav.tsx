@@ -1,5 +1,5 @@
 import { useLocation } from 'wouter';
-import { Home, Search, MessageCircle, Settings } from 'lucide-react';
+import { Home, Search, MessageCircle, GitBranch, Settings } from 'lucide-react';
 
 export function BottomNav() {
   const [location, navigate] = useLocation();
@@ -8,6 +8,7 @@ export function BottomNav() {
     { path: '/', icon: Home, label: 'Home' },
     { path: '/discovery', icon: Search, label: 'Discover' },
     { path: '/messages', icon: MessageCircle, label: 'Messages' },
+    { path: '/git', icon: GitBranch, label: 'Git' },
     { path: '/settings', icon: Settings, label: 'Settings' }
   ];
 
