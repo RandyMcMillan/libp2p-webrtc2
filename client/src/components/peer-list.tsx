@@ -1,5 +1,6 @@
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { RefreshCw } from 'lucide-react';
 
 interface Peer {
@@ -12,11 +13,12 @@ interface Peer {
 
 interface PeerListProps {
   peers: Peer[];
+  localPeerId: string;
   onRefresh: () => void;
   onConnectToPeer: (peerId: string) => void;
 }
 
-export function PeerList({ peers, onRefresh, onConnectToPeer }: PeerListProps) {
+export function PeerList({ peers, localPeerId, onRefresh, onConnectToPeer }: PeerListProps) {
   const shortenPeerId = (peerId: string) => {
     return peerId.length > 8 ? `${peerId.slice(0, 8)}...` : peerId;
   };
@@ -85,8 +87,8 @@ export function PeerList({ peers, onRefresh, onConnectToPeer }: PeerListProps) {
           peers.map((peer) => (
             <Card
               key={peer.id}
-              className={`bg-secondary rounded-lg p-3 border-l-4 cursor-pointer hover:bg-accent transition-colors ${getBorderColor(peer.status)}`}
-              onClick={() => onConnectToPeer(peer.id)}
+              className={`bg-secondary rounded-lg p-3 border-l-4 ${peer.id === localPeerId ? 'cursor-default' : 'cursor-pointer hover:bg-accent'} transition-colors ${getBorderColor(peer.status)}`}
+              onClick={() => peer.id !== localPeerId && onConnectToPeer(peer.id)}
               data-testid={`card-peer-${peer.id}`}
             >
               <div className="flex items-center justify-between">
@@ -96,6 +98,11 @@ export function PeerList({ peers, onRefresh, onConnectToPeer }: PeerListProps) {
                     <span className="font-medium text-foreground font-mono text-sm" data-testid={`text-peer-id-${peer.id}`}>
                       {shortenPeerId(peer.id)}
                     </span>
+                    {peer.id === localPeerId && (
+                      <Badge variant="secondary" className="text-xs" data-testid={`badge-peer-you-${peer.id}`}>
+                        You
+                      </Badge>
+                    )}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1" data-testid={`text-peer-address-${peer.id}`}>
                     {peer.address}

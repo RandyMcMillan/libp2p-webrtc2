@@ -83,6 +83,7 @@ export default function Home() {
       {/* Peer List */}
       <PeerList
         peers={peers}
+        localPeerId={localPeerId}
         onRefresh={refreshPeers}
         onConnectToPeer={handleConnectToPeer}
       />
