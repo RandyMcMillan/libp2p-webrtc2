@@ -64,6 +64,8 @@ export default function Git() {
 
   const { data: branches } = useQuery<{ current: string; all: string[]; local: string[] }>({
     queryKey: ['/api/git/branches'],
+    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchIntervalInBackground: true, // Continue refreshing when tab is in background
   });
 
   const { data: fileTree } = useQuery<{ name: string; type: string }[]>({
